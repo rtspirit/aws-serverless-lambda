@@ -1,0 +1,54 @@
+name: Deploy Lambda Function
+
+env:
+  ARTIFACT_NAME: csye6225-lambda-${{ github.run_number }}.zip
+  AWS_REGION: us-east-1
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  Lambda:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [ 12.x ]
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y zip unzip
+          npm install crypto
+          npm install dotenv
+
+
+      - name: Build Deployment Artifact
+        run: |
+          touch .env
+          echo 'DOMAIN='${{ secrets.DOMAIN }}'' >> .env
+          cat .env
+          zip -r ${{ env.ARTIFACT_NAME }} node_modules index.js package-lock.json .env
+
+      - name: Configuring AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Copy Artifact to S3
+        run: |
+          aws s3 cp ${{ env.ARTIFACT_NAME }} s3://${{ secrets.LAMBDA_BUCKET }}/${{ env.ARTIFACT_NAME }}
+
+      - name: Call to Lambda for Updating Function
+        run: |
+          aws lambda update-function-code --function-name lambda_email_updates --region us-east-1 --zip-file fileb://${{ env.ARTIFACT_NAME }}
